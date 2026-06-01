@@ -480,12 +480,32 @@
             const [dailyStats, setDailyStats] = useState({ streak: 0, maxStreak: 0, totalPlayed: 0, lastPlayedDate: null });
             const [countdown, setCountdown] = useState(getTimeToMidnight());
             const [showShareToast, setShowShareToast] = useState(false);
+            const [solveTime, setSolveTime] = useState(0);         // segundos
+            const [showShareModal, setShowShareModal] = useState(false);
+            const [shareImageUrl, setShareImageUrl] = useState(null);
+            const solveStartRef = useRef(null);
+            const timerRef = useRef(null);
 
             // Contador regresivo al próximo puzzle diario
             useEffect(() => {
                 const timer = setInterval(() => setCountdown(getTimeToMidnight()), 1000);
                 return () => clearInterval(timer);
             }, []);
+
+        // Timer de resolución: arranca al empezar, para al ganar
+useEffect(() => {
+    if (gameState === 'playing' && boardConfig) {
+        solveStartRef.current = Date.now();
+        setSolveTime(0);
+        timerRef.current = setInterval(() => {
+            setSolveTime(Math.floor((Date.now() - solveStartRef.current) / 1000));
+        }, 1000);
+    }
+    if (gameState === 'won') {
+        clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+}, [gameState, boardConfig]);
 
             // Cargar stats diarias al inicio
             useEffect(() => {
@@ -854,6 +874,146 @@
 
             const filteredLevels = LEVELS.filter(lvl => filterDifficulty === 'Todos' || lvl.difficulty === filterDifficulty);
 
+            const formatTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m}m ${String(s).padStart(2,'0')}s` : `${s}s`;
+};
+
+const generateShareImage = () => {
+    return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 800;
+        canvas.height = 420;
+        const ctx = canvas.getContext('2d');
+
+        // Fondo degradado oscuro
+        const bgGrad = ctx.createLinearGradient(0, 0, 800, 420);
+        bgGrad.addColorStop(0, '#0f172a');
+        bgGrad.addColorStop(1, '#1e293b');
+        ctx.fillStyle = bgGrad;
+        ctx.roundRect(0, 0, 800, 420, 24);
+        ctx.fill();
+
+        // Borde dorado
+        ctx.strokeStyle = '#e2b04a';
+        ctx.lineWidth = 3;
+        ctx.roundRect(6, 6, 788, 408, 20);
+        ctx.stroke();
+
+        // Franja izquierda dorada
+        const leftGrad = ctx.createLinearGradient(0, 0, 0, 420);
+        leftGrad.addColorStop(0, '#e2b04a');
+        leftGrad.addColorStop(1, '#92400e');
+        ctx.fillStyle = leftGrad;
+        ctx.fillRect(6, 6, 6, 408);
+
+        // Badge "CASO DEL DÍA"
+        ctx.fillStyle = '#e2b04a20';
+        ctx.beginPath();
+        ctx.roundRect(40, 32, 180, 32, 8);
+        ctx.fill();
+        ctx.fillStyle = '#e2b04a';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText('🔍  CASO DEL DÍA', 55, 53);
+
+        // Nombre del caso
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = 'bold 52px serif';
+        ctx.fillText(boardConfig?.levelDef?.name || 'Misterio', 40, 130);
+
+        // Línea separadora
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(40, 150);
+        ctx.lineTo(760, 150);
+        ctx.stroke();
+
+        // Columna izquierda: tiempo
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('TIEMPO', 40, 195);
+        ctx.fillStyle = '#e2b04a';
+        ctx.font = 'bold 48px monospace';
+        ctx.fillText(formatTime(solveTime), 40, 250);
+
+        // Columna centro: racha
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('RACHA', 280, 195);
+        const streakEmoji = dailyStats.streak >= 7 ? '🔥' : dailyStats.streak >= 3 ? '⚡' : '🔍';
+        ctx.fillStyle = '#fb923c';
+        ctx.font = 'bold 48px monospace';
+        ctx.fillText(`${streakEmoji} ${dailyStats.streak}`, 280, 250);
+
+        // Columna derecha: dificultad
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('NIVEL', 480, 195);
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.fillText(boardConfig?.levelDef?.difficulty || '', 480, 250);
+
+        // Asesino revelado
+        const killerId = getKillerId();
+        if (killerId) {
+            ctx.fillStyle = '#1e293b';
+            ctx.beginPath();
+            ctx.roundRect(40, 280, 540, 70, 12);
+            ctx.fill();
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(40, 280, 540, 70, 12);
+            ctx.stroke();
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '14px sans-serif';
+            ctx.fillText('ASESINO', 60, 305);
+            ctx.fillStyle = '#f8fafc';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.fillText(`${killerId}  Lo encontré`, 60, 338);
+        }
+
+        // Fecha
+        const today = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+        ctx.fillStyle = '#64748b';
+        ctx.font = '15px sans-serif';
+        ctx.fillText(today, 40, 390);
+
+        // URL
+        ctx.fillStyle = '#e2b04a';
+        ctx.font = 'bold 15px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('clueku.netlify.app', 760, 390);
+        ctx.textAlign = 'left';
+
+        // Logo lupa (simple SVG-style en canvas)
+        ctx.fillStyle = '#e2b04a';
+        ctx.beginPath();
+        ctx.arc(720, 80, 35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(720, 80, 28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#e2b04a';
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = '#e2b04a';
+        ctx.beginPath();
+        ctx.moveTo(738, 98);
+        ctx.lineTo(752, 112);
+        ctx.stroke();
+        // Texto "Ck" dentro
+        ctx.fillStyle = '#e2b04a';
+        ctx.font = 'bold 22px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Ck', 720, 88);
+        ctx.textAlign = 'left';
+
+        resolve(canvas.toDataURL('image/png'));
+    });
+};
             const CloudIndicator = () => {
                 if (cloudStatus === 'syncing') return <div className="flex items-center gap-1.5 text-indigo-400 text-sm"><Icon name="CloudCog" size={16} className="animate-pulse"/> Sincronizando</div>;
                 if (cloudStatus === 'synced') return <div className="flex items-center gap-1.5 text-emerald-400 text-sm"><Icon name="Cloud" size={16}/> Guardado</div>;
@@ -1077,11 +1237,21 @@
                                     {isDailyMode && <span className="text-[#e2b04a] text-base font-bold bg-[#e2b04a]/10 border border-[#e2b04a]/30 px-2 py-0.5 rounded-lg">DIARIO</span>}
                                     Caso #{levelDef.id}: {levelDef.name}
                                 </h1>
-                                <p className="text-slate-400 text-sm mt-1">
-                                    {isDailyMode
-                                        ? <span className="flex items-center gap-2"><Icon name="Flame" size={14} className="text-orange-400"/> Racha actual: <strong className="text-orange-300">{dailyStats.streak} días</strong></span>
-                                        : `${levelDef.difficulty} • Plano ${levelDef.size}x${levelDef.size}`}
-                                </p>
+                                <p className="text-slate-400 text-sm mt-1 flex items-center gap-3">
+    {isDailyMode
+        ? <span className="flex items-center gap-2"><Icon name="Flame" size={14} className="text-orange-400"/> Racha: <strong className="text-orange-300">{dailyStats.streak} días</strong></span>
+        : `${levelDef.difficulty} • Plano ${levelDef.size}x${levelDef.size}`}
+    {gameState === 'playing' && (
+        <span className="font-mono text-[#e2b04a] font-bold bg-[#e2b04a]/10 px-2 py-0.5 rounded-lg">
+            ⏱ {formatTime(solveTime)}
+        </span>
+    )}
+    {gameState === 'won' && (
+        <span className="font-mono text-emerald-400 font-bold bg-emerald-400/10 px-2 py-0.5 rounded-lg">
+            ✓ {formatTime(solveTime)}
+        </span>
+    )}
+</p>
                             </div>
                         </div>
                         <div className="flex gap-2">
@@ -1180,14 +1350,18 @@
 
                                         <div className="flex flex-col sm:flex-row gap-3 w-full">
                                             {isDailyMode ? (
-                                                <>
-                                                    <button onClick={shareDailyResult} className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-[#e2b04a] hover:bg-[#c99a3c] text-slate-900 font-bold rounded-xl transition-all shadow-lg">
-                                                        <Icon name="Share2" size={20}/> Compartir resultado
-                                                    </button>
-                                                    <button onClick={() => { setIsDailyMode(false); setGameState('menu'); }} className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all">
-                                                        Menú
-                                                    </button>
-                                                </>
+    <>
+        <button onClick={async () => {
+            const url = await generateShareImage();
+            setShareImageUrl(url);
+            setShowShareModal(true);
+        }} className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-[#e2b04a] hover:bg-[#c99a3c] text-slate-900 font-bold rounded-xl transition-all shadow-lg">
+            <Icon name="Share2" size={20}/> Compartir resultado
+        </button>
+        <button onClick={() => { setIsDailyMode(false); setGameState('menu'); }} className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all">
+            Menú
+        </button>
+    </>
                                             ) : (
                                                 <>
                                                     <button onClick={() => { setIsDailyMode(false); setGameState('levelSelect'); }} className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all">Archivos</button>
@@ -1275,7 +1449,88 @@
                                 <button onClick={() => setShowRules(false)} className="mt-10 w-full py-5 bg-[#e2b04a] hover:bg-[#c99a3c] text-slate-900 text-xl font-bold rounded-2xl transition-all shadow-[0_0_20px_rgba(226,176,74,0.4)]">¡A Resolver!</button>
                             </div>
                         </div>
-                    )}
+                {/* MODAL DE SHARE */}
+{showShareModal && shareImageUrl && (
+    <div className="fixed inset-0 bg-[#0f172a]/97 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-md">
+        <div className="bg-[#1f2937] rounded-3xl max-w-2xl w-full border-2 border-[#e2b04a]/40 shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Icon name="Share2" className="text-[#e2b04a]" size={22}/> Comparte tu resultado
+                </h2>
+                <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                    <Icon name="XCircle" size={28}/>
+                </button>
+            </div>
+
+            {/* Preview imagen */}
+            <div className="p-4">
+                <img src={shareImageUrl} alt="Resultado Clueku" className="w-full rounded-2xl border border-slate-700 shadow-lg"/>
+            </div>
+
+            {/* Texto del share */}
+            <div className="px-6 pb-2">
+                <p className="text-slate-400 text-xs text-center mb-4">Guarda la imagen o comparte el enlace directo</p>
+            </div>
+
+            {/* Botones de redes */}
+            <div className="px-6 pb-6 grid grid-cols-2 gap-3">
+                {/* Twitter/X */}
+                <button onClick={() => {
+                    const text = `🔍 Clueku — Caso del Día\n📅 ${boardConfig?.levelDef?.name}\n⏱ ${formatTime(solveTime)} • 🔥 Racha: ${dailyStats.streak}\n\n¿Puedes resolverlo tú?\nhttps://clueku.netlify.app`;
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                }} className="flex items-center justify-center gap-2 py-3 bg-black hover:bg-slate-900 text-white font-bold rounded-xl border border-slate-700 transition-all hover:scale-105">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    Twitter / X
+                </button>
+
+                {/* WhatsApp */}
+                <button onClick={() => {
+                    const text = `🔍 *Clueku — Caso del Día*\n📅 *${boardConfig?.levelDef?.name}*\n⏱ ${formatTime(solveTime)} • 🔥 Racha: *${dailyStats.streak} días*\n\n¿Puedes resolverlo tú?\nhttps://clueku.netlify.app`;
+                    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                }} className="flex items-center justify-center gap-2 py-3 bg-[#25D366] hover:bg-[#1da851] text-white font-bold rounded-xl transition-all hover:scale-105">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    WhatsApp
+                </button>
+
+                {/* Copiar imagen */}
+                <button onClick={async () => {
+                    try {
+                        const blob = await fetch(shareImageUrl).then(r => r.blob());
+                        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                        setShowShareToast(true);
+                        setTimeout(() => setShowShareToast(false), 3000);
+                    } catch {
+                        // Fallback: descargar imagen
+                        const a = document.createElement('a');
+                        a.href = shareImageUrl;
+                        a.download = `clueku-${getTodayString()}.png`;
+                        a.click();
+                    }
+                }} className="flex items-center justify-center gap-2 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl border border-slate-600 transition-all hover:scale-105">
+                    <Icon name="Copy" size={20}/> Copiar imagen
+                </button>
+
+                {/* Instagram / TikTok — guardar */}
+                <button onClick={() => {
+                    const a = document.createElement('a');
+                    a.href = shareImageUrl;
+                    a.download = `clueku-${getTodayString()}.png`;
+                    a.click();
+                }} className="flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] text-white font-bold rounded-xl transition-all hover:scale-105">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                    Instagram / TikTok
+                </button>
+            </div>
+
+            {/* Nota Instagram/TikTok */}
+            <p className="text-center text-slate-500 text-xs pb-5 px-6">
+                Instagram y TikTok no permiten subir imágenes desde web. Guarda la imagen y súbela manualmente desde tu móvil.
+            </p>
+        </div>
+    </div>
+)}    
+                )}
                 </div>
             );
         }
