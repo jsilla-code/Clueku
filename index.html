@@ -1636,27 +1636,19 @@ const generateShareImage = () => {
                 )}
 
                 {/* Invitar amigo */}
-                <button onClick={() => {
-                    const link = generateInviteLink(user?.uid);
-                    navigator.clipboard.writeText(link).then(() => {
-                        setInviteCopied(true);
-                        setTimeout(() => setInviteCopied(false), 3000);
-                        // +2 vidas al copiar el link (confía en el usuario — en producción verificar con Firebase)
-                        const updated = computeRegenLives(lives);
-                        const newLives = { ...updated, count: Math.min(MAX_LIVES, updated.count + 2) };
-                        saveLives(newLives);
-                        setLives(newLives);
-                        setShowNoLives(false);
-                    });
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/40 rounded-2xl transition-all">
-                    <span className="text-2xl">👥</span>
-                    <div className="text-left">
-                        <p className="text-white font-bold text-sm">{inviteCopied ? '¡Link copiado!' : 'Invitar a un amigo'}</p>
-                        <p className="text-slate-400 text-xs">+2 vidas · Copia tu enlace</p>
-                    </div>
-                    <span className="ml-auto text-indigo-400 font-bold">+2 ❤️</span>
-                </button>
+<button onClick={() => {
+    const link = generateInviteLink(user?.uid);
+    const text = `🔍 ¡Echa un vistazo a Clueku! Un puzzle de detectives diferente cada día.\n👉 ${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+}}
+className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/40 rounded-2xl transition-all">
+    <span className="text-2xl">👥</span>
+    <div className="text-left">
+        <p className="text-white font-bold text-sm">Invitar a un amigo</p>
+        <p className="text-slate-400 text-xs">+2 vidas cuando acepte la invitación</p>
+    </div>
+    <span className="ml-auto text-indigo-400 font-bold">+2 ❤️</span>
+</button>
 
                 {/* Premium */}
                 <button className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-[#e2b04a]/20 to-amber-600/20 border border-[#e2b04a]/50 rounded-2xl transition-all hover:from-[#e2b04a]/30 hover:to-amber-600/30">
