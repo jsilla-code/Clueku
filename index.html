@@ -533,7 +533,6 @@ function generateInviteLink(userId) {
             const [lives, setLives] = useState(loadLives);
             const [showNoLives, setShowNoLives] = useState(false);
             const [nextLifeCountdown, setNextLifeCountdown] = useState('');
-            const [inviteCopied, setInviteCopied] = useState(false);
 
             // Contador regresivo al próximo puzzle diario
             useEffect(() => {
