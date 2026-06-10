@@ -160,6 +160,47 @@
             localStorage.setItem('clueku_daily_stats', JSON.stringify(stats));
         }
 
+        // --- SISTEMA DE VIDAS ---
+const MAX_LIVES = 5;
+const LIVES_REGEN_MS = 2 * 60 * 60 * 1000; // 2 horas en ms
+
+function loadLives() {
+    try {
+        const saved = localStorage.getItem('clueku_lives');
+        if (!saved) return { count: MAX_LIVES, lastRegen: Date.now(), sharedToday: false, sharedDate: null };
+        return JSON.parse(saved);
+    } catch { return { count: MAX_LIVES, lastRegen: Date.now(), sharedToday: false, sharedDate: null }; }
+}
+
+function saveLives(data) {
+    localStorage.setItem('clueku_lives', JSON.stringify(data));
+}
+
+function computeRegenLives(data) {
+    // Calcula cuántas vidas se han regenerado desde lastRegen
+    if (data.count >= MAX_LIVES) return data;
+    const now = Date.now();
+    const elapsed = now - data.lastRegen;
+    const regenCount = Math.floor(elapsed / LIVES_REGEN_MS);
+    if (regenCount <= 0) return data;
+    const newCount = Math.min(MAX_LIVES, data.count + regenCount);
+    const newLastRegen = data.lastRegen + regenCount * LIVES_REGEN_MS;
+    return { ...data, count: newCount, lastRegen: newLastRegen };
+}
+
+function getTimeToNextLife(data) {
+    if (data.count >= MAX_LIVES) return null;
+    const elapsed = Date.now() - data.lastRegen;
+    const remaining = LIVES_REGEN_MS - (elapsed % LIVES_REGEN_MS);
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000) / 1000);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function generateInviteLink(userId) {
+    return `https://clueku.netlify.app?ref=${userId?.slice(0,8) || 'guest'}`;
+}
+
         // --- ICONOS LUCIDE ---
         const Icon = ({ name, size = 20, className = "" }) => {
             const icons = {
@@ -485,12 +526,35 @@
             const [shareImageUrl, setShareImageUrl] = useState(null);
             const solveStartRef = useRef(null);
             const timerRef = useRef(null);
+            const [lives, setLives] = useState(loadLives);
+            const [showNoLives, setShowNoLives] = useState(false);
+            const [nextLifeCountdown, setNextLifeCountdown] = useState('');
+            const [inviteCopied, setInviteCopied] = useState(false);
 
             // Contador regresivo al próximo puzzle diario
             useEffect(() => {
                 const timer = setInterval(() => setCountdown(getTimeToMidnight()), 1000);
                 return () => clearInterval(timer);
             }, []);
+
+            // Regeneración automática de vidas cada segundo
+useEffect(() => {
+    const interval = setInterval(() => {
+        setLives(prev => {
+            const updated = computeRegenLives(prev);
+            if (updated.count !== prev.count || updated.lastRegen !== prev.lastRegen) {
+                saveLives(updated);
+                return updated;
+            }
+            return prev;
+        });
+        setNextLifeCountdown(prev => {
+            const current = loadLives();
+            return getTimeToNextLife(current) || '';
+        });
+    }, 1000);
+    return () => clearInterval(interval);
+}, []);
 
         // Timer de resolución: arranca al empezar, para al ganar
 useEffect(() => {
@@ -774,10 +838,17 @@ useEffect(() => {
             }, [progress]);
 
             const handleLevelSelect = (idx) => {
-                setIsDailyMode(false);
-                setCurrentLevelIdx(idx);
-                generatePuzzle(idx);
-            };
+    const currentLives = computeRegenLives(lives);
+    if (currentLives.count <= 0) {
+        saveLives(currentLives);
+        setLives(currentLives);
+        setShowNoLives(true);
+        return;
+    }
+    setIsDailyMode(false);
+    setCurrentLevelIdx(idx);
+    generatePuzzle(idx);
+};
 
             const handleCellClick = (r, c) => {
                 if (gameState !== 'playing') return;
@@ -821,7 +892,24 @@ useEffect(() => {
                 for (let clue of boardConfig.clues) {
                     if (!evalClue(placedSuspects, clue, boardConfig.levelDef)) { cluesMet = false; break; }
                 }
-                if (!cluesMet) { setFeedbackMsg("❌ Alguna deducción de la libreta no cuadra."); return; }
+                if (!cluesMet) {
+    // Solo consume vida en modo archivo (no en modo diario)
+    if (!isDailyMode) {
+        const updatedLives = computeRegenLives(lives);
+        const newLives = { ...updatedLives, count: Math.max(0, updatedLives.count - 1) };
+        saveLives(newLives);
+        setLives(newLives);
+        if (newLives.count === 0) {
+            setShowNoLives(true);
+            setFeedbackMsg("");
+            return;
+        }
+        setFeedbackMsg(`❌ Alguna deducción no cuadra. ❤️ ${newLives.count} vida${newLives.count !== 1 ? 's' : ''} restante${newLives.count !== 1 ? 's' : ''}.`);
+    } else {
+        setFeedbackMsg("❌ Alguna deducción de la libreta no cuadra.");
+    }
+    return;
+}
 
                 // --- NUEVO: Actualizar racha si es modo diario ---
                 if (isDailyMode) {
@@ -1172,6 +1260,28 @@ const generateShareImage = () => {
                                 ))}
                             </div>
 
+                            {/* Banner de vidas en la selección de niveles */}
+<div className="flex items-center gap-3 mb-6 bg-[#1f2937] border border-slate-700 px-5 py-3 rounded-2xl w-fit">
+    <div className="flex gap-1">
+        {Array.from({ length: MAX_LIVES }).map((_, i) => (
+            <span key={i} className={`text-xl transition-all ${i < lives.count ? 'opacity-100' : 'opacity-20 grayscale'}`}>❤️</span>
+        ))}
+    </div>
+    <span className="text-slate-400 text-sm">
+        {lives.count === MAX_LIVES
+            ? 'Vidas al máximo'
+            : lives.count === 0
+            ? <span className="text-rose-400 font-bold">Sin vidas · {nextLifeCountdown && `+1 en ${nextLifeCountdown}`}</span>
+            : <span>{lives.count}/{MAX_LIVES} vidas · <span className="font-mono text-[#e2b04a]">+1 en {nextLifeCountdown}</span></span>
+        }
+    </span>
+    {lives.count === 0 && (
+        <button onClick={() => setShowNoLives(true)}
+            className="ml-2 px-3 py-1 bg-[#e2b04a] text-slate-900 text-xs font-bold rounded-lg">
+            Recargar
+        </button>
+    )}
+</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                 {filteredLevels.map(lvl => {
                                     const originalIdx = LEVELS.findIndex(l => l.id === lvl.id);
@@ -1254,6 +1364,17 @@ const generateShareImage = () => {
 </p>
                             </div>
                         </div>
+                        {/* Indicador de vidas — solo en modo archivo */}
+{!isDailyMode && (
+    <div className="flex items-center gap-1.5 bg-[#1f2937] border border-slate-700 px-3 py-2 rounded-xl">
+        {Array.from({ length: MAX_LIVES }).map((_, i) => (
+            <span key={i} className={`text-lg transition-all ${i < lives.count ? 'opacity-100' : 'opacity-20 grayscale'}`}>❤️</span>
+        ))}
+        {lives.count < MAX_LIVES && nextLifeCountdown && (
+            <span className="text-slate-400 text-xs font-mono ml-1">+1 en {nextLifeCountdown}</span>
+        )}
+    </div>
+)}
                         <div className="flex gap-2">
                             <button onClick={() => { setIsDailyMode(false); setGameState('levelSelect'); }} className="p-3 bg-[#1f2937] hover:bg-slate-700 rounded-xl transition-colors" title="Archivos"><Icon name="List" size={20} /></button>
                             <button onClick={() => setShowRules(true)} className="p-3 bg-[#1f2937] hover:bg-slate-700 rounded-xl transition-colors" title="Reglas"><Icon name="Info" size={20} /></button>
@@ -1451,6 +1572,107 @@ const generateShareImage = () => {
                         </div>
                     )}
 
+                    {/* MODAL SIN VIDAS */}
+{showNoLives && (
+    <div className="fixed inset-0 bg-[#0f172a]/97 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-md">
+        <div className="bg-[#1f2937] rounded-3xl max-w-md w-full border-2 border-rose-500/40 shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-6 text-center border-b border-slate-700">
+                <div className="text-5xl mb-3">💔</div>
+                <h2 className="text-2xl font-bold text-white mb-1">Sin vidas disponibles</h2>
+                <p className="text-slate-400 text-sm">
+                    {nextLifeCountdown
+                        ? <>Próxima vida en <span className="font-mono text-[#e2b04a] font-bold">{nextLifeCountdown}</span></>
+                        : 'Recarga tu energía para seguir jugando'}
+                </p>
+            </div>
+
+            {/* Opciones de recarga */}
+            <div className="px-6 py-5 space-y-3">
+
+                {/* Compartir caso del día */}
+                {!lives.sharedToday || lives.sharedDate !== getTodayString() ? (
+                    <button onClick={async () => {
+                        // Generar imagen y abrir share
+                        const today = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+                        const text = `🔍 Clueku — Caso del Día\n📅 ${today}\n¿Puedes resolverlo tú?\nhttps://clueku.netlify.app`;
+                        if (navigator.share) {
+                            navigator.share({ text }).catch(() => {});
+                        } else {
+                            await navigator.clipboard.writeText(text);
+                        }
+                        // Dar vida
+                        const updated = computeRegenLives(lives);
+                        const newLives = {
+                            ...updated,
+                            count: Math.min(MAX_LIVES, updated.count + 1),
+                            sharedToday: true,
+                            sharedDate: getTodayString()
+                        };
+                        saveLives(newLives);
+                        setLives(newLives);
+                        setShowNoLives(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-[#e2b04a]/10 hover:bg-[#e2b04a]/20 border border-[#e2b04a]/40 rounded-2xl transition-all">
+                        <span className="text-2xl">📤</span>
+                        <div className="text-left">
+                            <p className="text-white font-bold text-sm">Compartir el caso del día</p>
+                            <p className="text-slate-400 text-xs">+1 vida · Una vez al día</p>
+                        </div>
+                        <span className="ml-auto text-[#e2b04a] font-bold">+1 ❤️</span>
+                    </button>
+                ) : (
+                    <div className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl opacity-50">
+                        <span className="text-2xl">✅</span>
+                        <div className="text-left">
+                            <p className="text-slate-400 font-bold text-sm">Ya compartiste hoy</p>
+                            <p className="text-slate-500 text-xs">Vuelve mañana</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Invitar amigo */}
+                <button onClick={() => {
+                    const link = generateInviteLink(user?.uid);
+                    navigator.clipboard.writeText(link).then(() => {
+                        setInviteCopied(true);
+                        setTimeout(() => setInviteCopied(false), 3000);
+                        // +2 vidas al copiar el link (confía en el usuario — en producción verificar con Firebase)
+                        const updated = computeRegenLives(lives);
+                        const newLives = { ...updated, count: Math.min(MAX_LIVES, updated.count + 2) };
+                        saveLives(newLives);
+                        setLives(newLives);
+                        setShowNoLives(false);
+                    });
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/40 rounded-2xl transition-all">
+                    <span className="text-2xl">👥</span>
+                    <div className="text-left">
+                        <p className="text-white font-bold text-sm">{inviteCopied ? '¡Link copiado!' : 'Invitar a un amigo'}</p>
+                        <p className="text-slate-400 text-xs">+2 vidas · Copia tu enlace</p>
+                    </div>
+                    <span className="ml-auto text-indigo-400 font-bold">+2 ❤️</span>
+                </button>
+
+                {/* Premium */}
+                <button className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-[#e2b04a]/20 to-amber-600/20 border border-[#e2b04a]/50 rounded-2xl transition-all hover:from-[#e2b04a]/30 hover:to-amber-600/30">
+                    <span className="text-2xl">👑</span>
+                    <div className="text-left">
+                        <p className="text-white font-bold text-sm">Cuenta Premium</p>
+                        <p className="text-slate-400 text-xs">Vidas ilimitadas · €2.99/mes</p>
+                    </div>
+                    <span className="ml-auto text-[#e2b04a] font-bold text-xs">PRONTO</span>
+                </button>
+
+                {/* Esperar */}
+                <button onClick={() => setShowNoLives(false)}
+                    className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm transition-colors">
+                    Esperar · Siguiente vida en {nextLifeCountdown || '—'}
+                </button>
+            </div>
+        </div>
+    </div>
+)}
                     {/* MODAL DE SHARE */}
                     {showShareModal && shareImageUrl && (
     <div className="fixed inset-0 bg-[#0f172a]/97 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-md">
