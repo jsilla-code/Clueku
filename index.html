@@ -122,15 +122,19 @@
         }
 
         function getDailyLevelIndex() {
-            // Día 0 = 19 mayo 2026. Rota entre los primeros 15 niveles.
-            const start = new Date(2026, 4, 19);
-            start.setHours(0,0,0,0);
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            const dayNum = Math.max(0, Math.floor((today - start) / 86400000));
-            const dailyId = DAILY_LEVEL_IDS[dayNum % DAILY_LEVEL_IDS.length];
-            return LEVELS.findIndex(l => l.id === dailyId);
-        }
+    const d = new Date();
+    const seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    // splitmix32 para distribuir bien la semilla
+    let a = seed | 0;
+    a = a + 0x9e3779b9 | 0;
+    let t = a ^ a >>> 16;
+    t = Math.imul(t, 0x21f0aaad);
+    t = t ^ t >>> 15;
+    t = Math.imul(t, 0x735a2d97);
+    t = (t ^ t >>> 15) >>> 0;
+    const idx = t % DAILY_LEVEL_IDS.length;
+    return LEVELS.findIndex(l => l.id === DAILY_LEVEL_IDS[idx]);
+}
 
         function getDailySeed() {
             // Semilla única por día, distinta del modo normal para que no haya spoilers
