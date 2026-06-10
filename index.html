@@ -900,8 +900,8 @@ useEffect(() => {
         saveLives(newLives);
         setLives(newLives);
         if (newLives.count === 0) {
-            setShowNoLives(true);
-            setFeedbackMsg("");
+            setFeedbackMsg("❌ Sin vidas. Recarga para continuar.");
+    setShowNoLives(true);
             return;
         }
         setFeedbackMsg(`❌ Alguna deducción no cuadra. ❤️ ${newLives.count} vida${newLives.count !== 1 ? 's' : ''} restante${newLives.count !== 1 ? 's' : ''}.`);
